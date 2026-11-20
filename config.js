@@ -3,6 +3,6 @@
 window.ACADEMIA = {
   env: "test",                                   // "test" or "live"
   supabaseUrl: "https://flzirejwgajljrfebnda.supabase.co",
-  anonKey: "PASTE_PUBLIC_KEY_HERE",              // the publishable (or anon) key from Project Settings, API
+  anonKey"sb_publishable_tq4DhlmeHh4u1ktWjGouPA_2maRfu9N",              // the publishable (or anon) key from Project Settings, API
   baseDomain: ""                                 // live only, e.g. "academiainc.com" (schools get school.academiainc.com)
 };
