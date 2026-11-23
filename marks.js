@@ -171,7 +171,7 @@ async function marksView(main, _p, alive){
         const inp = h("input", { type:"text", maxlength:"6", autocomplete:"off", autocapitalize:"characters", enterkeyhint:"next", "aria-label":"Mark for " + s.name, style:"width:84px;text-align:center" });
         const pv = h("div", { class:"muted small", "aria-live":"polite", style:"min-height:1.2em;text-align:right" });
         const row = { s, inp, pv };
-                const undo = unlocked.has(s.id) ? h("button", { type:"button", class:"sm secondary", style:"margin-top:6px", onclick: () => { unlocked.delete(s.id); drawBody(); drawFoot(); } }, "Not taking it") : null;
+        const undo = unlocked.has(s.id) ? h("button", { type:"button", class:"sm secondary", style:"margin-top:6px", onclick: () => { unlocked.delete(s.id); drawBody(); drawFoot(); } }, "Not taking it") : null;
         const upd = () => { if(undo) undo.style.display = inp.value.trim() !== "" ? "none" : ""; const p = parseMark(inp.value); inp.removeAttribute("aria-invalid"); inp.style.borderColor = "";
           if(p.error){ inp.setAttribute("aria-invalid", "true"); inp.style.borderColor = "var(--red-fg)"; pv.textContent = "Not valid"; pv.style.color = "var(--red-fg)"; return; }
           pv.style.color = ""; if(p.kind === "marked"){ const lv = levelOf(p.score); pv.textContent = lv ? lv.grade_code + " · " + lv.points + " pts" : ""; }
@@ -179,8 +179,7 @@ async function marksView(main, _p, alive){
         inp.addEventListener("input", upd);
         inp.addEventListener("keydown", (e) => { if(e.key === "Enter"){ e.preventDefault(); const nx = rows[rows.indexOf(row) + 1]; if(nx) nx.inp.focus(); else inp.blur(); } });
         rows.push(row);
-        list.append(h("div", { class:"item" }, left, h("div", null, inp, pv)));
-      });
+        list.append(h("div", { class:"item" }, left, h("div", { style:"text-align:right" }, inp, pv, undo)));
       body.append(list);
     }
     function drawFoot(){
