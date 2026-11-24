@@ -176,7 +176,8 @@ async function studentsView(main, _p, alive){
 
 /* ---------- Import ---------- */
 async function importView(main, _p, alive){
-  main.append(h("h1", null, "Import students"), h("p", { class:"muted" }, "Upload a list from Excel or CSV. You see a preview first, and nothing is saved until you confirm."));
+  main.append(h("h1", null, "Import students"), h("p", { class:"muted" }, "Upload a list from Excel or CSV. You see a preview first, and nothing is saved until you confirm."),
+    h("div", { class:"btns", style:"margin:0 0 12px" }, h("a", { class:"btn secondary", href:"#/import-marks" }, "Import marks instead")));
   const yr = await currentYear();
   const cls = yr ? await API.get("classes", { select:"id,name", academic_year_id:"eq." + yr.id, order:"name" }) : { ok:true, data:[] };
   if(!alive()) return;
