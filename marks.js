@@ -66,6 +66,7 @@ function parseMark(raw){          // returns { kind, score } or { error }
 
 async function marksView(main, _p, alive){
   main.append(h("h1", null, "Marks"), h("p", { class:"muted" }, "Choose the class, the subject and the assessment, then enter each learner's mark."));
+  main.append(h("div", { class:"btns", style:"margin:0 0 12px" }, h("a", { class:"btn secondary", href:"#/import-marks" }, "Import marks from Excel")));
   loading(main);
   const me = S.profile.id, isAdmin = S.profile.account_type === "school_admin";
   const yr = await currentYear();
@@ -218,4 +219,3 @@ async function marksView(main, _p, alive){
   pickE.addEventListener("change", () => { API.tab.set("cbe-m-event", pickE.value); loadGrid(); });
   await fillSubjects(); loadGrid();
 }
-
