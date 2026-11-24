@@ -171,8 +171,8 @@ async function render(){
   const t = S.profile.account_type;
   const views = {
     super_admin: { "/schools": schoolsView, "/add-school": addSchoolView, "/audit": auditView, "/account": accountView },
-    school_admin: { "/dashboard": dashboardView, "/people": peopleView, "/students": studentsView, "/import": importView, "/classes": classesView, "/subjects": subjectsView, "/teaching": teachingView, "/marks": marksView, "/settings": settingsView, "/account": accountView },
-    staff: { "/home": homeView, "/marks": marksView, "/account": accountView },
+    school_admin: { "/dashboard": dashboardView, "/people": peopleView, "/students": studentsView, "/import": importView, "/classes": classesView, "/subjects": subjectsView, "/teaching": teachingView, "/marks": marksView, "/import-marks": importMarksView, "/settings": settingsView, "/account": accountView },
+    staff: { "/home": homeView, "/marks": marksView, "/import-marks": importMarksView, "/account": accountView },
     guardian: { "/home": homeView, "/account": accountView },
   }[t] || {};
   const nav = {
@@ -460,7 +460,7 @@ function addSchoolView(main){
   main.append(h("div", { class:"card" }, form));
 }
 const ACTION_LABEL = { school_created:"Added", school_suspended:"Suspended", school_resumed:"Reactivated", school_removed:"Removed", school_restored:"Restored",
-  passcode_reset:"Reset a passcode for", user_created:"Added a person to", settings_changed:"Changed settings of", students_imported:"Imported students for", marks_saved:"Saved marks:" };
+  passcode_reset:"Reset a passcode for", user_created:"Added a person to", settings_changed:"Changed settings of", students_imported:"Imported students for", marks_saved:"Saved marks:", marks_imported:"Imported marks:" };
 async function auditView(main, _p, alive){
   main.append(h("h1", null, "Audit log"), h("p", { class:"muted" }, "Who did what, and when. Passcodes are never written here."));
   loading(main);
@@ -574,4 +574,3 @@ async function peopleView(main, params, alive){
   if(API.config().ok && API.hasSession()) await loadProfile();
   render();
 })();
-
