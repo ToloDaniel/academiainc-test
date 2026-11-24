@@ -22,26 +22,28 @@ function markRowsFrom(raw, oneSubject){
   let iMark = head.findIndex((x) => ["mark", "marks", "score", "percent", "percentage", "result", "results"].includes(x) || x.includes("mark") || x.includes("score") || x.includes("percent"));
   const cell = (r, i) => String(r[i] === undefined || r[i] === null ? "" : r[i]).trim().replace(/%$/, "");
   const get = (r) => ({ adm: iAdm >= 0 ? cell(r, iAdm) : "", upi: iUpi >= 0 ? cell(r, iUpi) : "" });
-  const out = []; let skipped = 0, shape = "";
+  const out = []; let skipped = 0, shape = "", rounded = 0;
+  // Excel often stores marks like 74.40000000000001 or 66.66666667; keep two decimals
+  const mk = (x) => { if(/^\d+[.,]\d{3,}$/.test(x)){ rounded++; return String(Math.round(Number(x.replace(",", ".")) * 100) / 100); } return x; };
   const dataRows = []; for(let i = hi + 1; i < raw.length; i++){ const r = raw[i] || []; if(r.some((c) => String(c).trim() !== "")) dataRows.push([i + 1, r]); }
   if(oneSubject){
     if(iMark < 0){ const others = head.map((x, i) => i).filter((i) => i !== iAdm && i !== iUpi && !NOT_SUBJECT.test(head[i]) && head[i] !== ""); if(others.length === 1) iMark = others[0]; }
     if(iMark < 0) throw new Error("We could not tell which column has the marks. Name that column “Mark”, or download the template.");
     shape = "one subject";
-    dataRows.forEach(([no, r]) => { const g = get(r); if(g.adm.toUpperCase() === "EXAMPLE-001"){ skipped++; return; } out.push({ row_no:no, admission_number:g.adm, upi_number:g.upi, subject:"", value:cell(r, iMark) }); });
+    dataRows.forEach(([no, r]) => { const g = get(r); if(g.adm.toUpperCase() === "EXAMPLE-001"){ skipped++; return; } out.push({ row_no:no, admission_number:g.adm, upi_number:g.upi, subject:"", value:mk(cell(r, iMark)) }); });
   } else if(iSub >= 0 && iMark >= 0){
     shape = "a Subject column";
-    dataRows.forEach(([no, r]) => { const g = get(r); if(g.adm.toUpperCase() === "EXAMPLE-001"){ skipped++; return; } out.push({ row_no:no, admission_number:g.adm, upi_number:g.upi, subject:cell(r, iSub), value:cell(r, iMark) }); });
+    dataRows.forEach(([no, r]) => { const g = get(r); if(g.adm.toUpperCase() === "EXAMPLE-001"){ skipped++; return; } out.push({ row_no:no, admission_number:g.adm, upi_number:g.upi, subject:cell(r, iSub), value:mk(cell(r, iMark)) }); });
   } else {
     const cols = head.map((x, i) => i).filter((i) => head[i] !== "" && !NOT_SUBJECT.test(head[i]) && i !== iSub);
     if(!cols.length) throw new Error("We could not find any subject columns. Put each subject's name in the first row, or use Admission number, Subject and Mark columns.");
     shape = cols.length + (cols.length === 1 ? " subject column" : " subject columns");
     dataRows.forEach(([no, r]) => { const g = get(r); if(g.adm.toUpperCase() === "EXAMPLE-001"){ skipped++; return; }
-      cols.forEach((i) => { const v = cell(r, i); if(v !== "") out.push({ row_no:no, admission_number:g.adm, upi_number:g.upi, subject:headRaw[i], value:v }); }); });
+      cols.forEach((i) => { const v = mk(cell(r, i)); if(v !== "") out.push({ row_no:no, admission_number:g.adm, upi_number:g.upi, subject:headRaw[i], value:v }); }); });
   }
   if(!out.length) throw new Error("The file has no marks in it.");
   if(out.length > 6000) throw new Error("This file has " + out.length + " marks. Please split it into files of 6000 or fewer.");
-  return { rows: out, skipped, shape };
+  return { rows: out, skipped, shape, rounded };
 }
 
 async function importMarksView(main, _p, alive){
@@ -109,6 +111,7 @@ async function importMarksView(main, _p, alive){
     if(st.parsed.skipped) notes.push("The example row was ignored.");
     if(p.not_applicable) notes.push(p.not_applicable + " empty marks were skipped (N/A).");
     if(p.unchanged) notes.push(p.unchanged + " marks were already the same.");
+    if(st.parsed.rounded) notes.push(st.parsed.rounded + " marks had more than 2 decimals and were rounded to 2.");
     notes.push("Read as: " + st.parsed.shape + ".");
     card.append(h("p", { class:"hint" }, notes.join(" ")));
     if(p.by_subject.length){ const l = h("div", { class:"list", style:"margin-top:12px" });
