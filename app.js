@@ -143,10 +143,12 @@ function pwField(label, id, autocomplete){
 async function loadProfile(){
   const id = API.userId();
   if(!id) return false;
-  const r = await API.get("users", { select:"id,school_id,account_type,system_id,full_name,must_change_passcode,recovery_email", id:"eq." + id });
+  // one request: the person and their school together
+  const r = await API.get("users", { select:"id,school_id,account_type,system_id,full_name,must_change_passcode,recovery_email,schools(name,subdomain)", id:"eq." + id });
   if(!r.ok || !Array.isArray(r.data) || !r.data.length){ await API.signOut(); S.profile = null; return false; }
-  S.profile = r.data[0]; S.school = null;
-  if(S.profile.school_id){
+  const { schools, ...me } = r.data[0];
+  S.profile = me; S.school = (schools && !Array.isArray(schools) ? schools : Array.isArray(schools) ? schools[0] : null) || null;
+  if(S.profile.school_id && !S.school){
     const s = await API.get("schools", { select:"name,subdomain", id:"eq." + S.profile.school_id });
     S.school = (s.ok && s.data && s.data[0]) || null;
   }
@@ -171,14 +173,14 @@ async function render(){
   const t = S.profile.account_type;
   const views = {
     super_admin: { "/schools": schoolsView, "/add-school": addSchoolView, "/audit": auditView, "/account": accountView },
-    school_admin: { "/dashboard": dashboardView, "/people": peopleView, "/students": studentsView, "/import": importView, "/classes": classesView, "/subjects": subjectsView, "/teaching": teachingView, "/marks": marksView, "/import-marks": importMarksView, "/settings": settingsView, "/account": accountView },
-    staff: { "/home": homeView, "/marks": marksView, "/import-marks": importMarksView, "/account": accountView },
+    school_admin: { "/dashboard": dashboardView, "/people": peopleView, "/students": studentsView, "/import": importView, "/classes": classesView, "/subjects": subjectsView, "/teaching": teachingView, "/marks": marksView, "/strands": strandMarksView, "/import-marks": importMarksView, "/settings": settingsView, "/account": accountView },
+    staff: { "/home": homeView, "/marks": marksView, "/strands": strandMarksView, "/import-marks": importMarksView, "/account": accountView },
     guardian: { "/home": homeView, "/account": accountView },
   }[t] || {};
   const nav = {
     super_admin: [["/schools","Schools"],["/add-school","Add a school"],["/audit","Audit log"],["/account","My account"]],
-    school_admin: [["/dashboard","Dashboard"],["/people","People"],["/students","Students"],["/classes","Classes"],["/subjects","Subjects"],["/teaching","Teaching"],["/marks","Marks"],["/settings","Settings"],["/import","Import"],["/account","My account"]],
-    staff: [["/home","Home"],["/marks","Marks"],["/account","My account"]], guardian: [["/home","Home"],["/account","My account"]],
+    school_admin: [["/dashboard","Dashboard"],["/people","People"],["/students","Students"],["/classes","Classes"],["/subjects","Subjects"],["/teaching","Teaching"],["/marks","Marks"],["/strands","Strand marks"],["/settings","Settings"],["/import","Import"],["/account","My account"]],
+    staff: [["/home","Home"],["/marks","Marks"],["/strands","Strand marks"],["/account","My account"]], guardian: [["/home","Home"],["/account","My account"]],
   }[t];
   const soon = [];
   const view = views[path] || views[homeFor(t)];
@@ -225,8 +227,13 @@ function isOwnerEntry(){
   const c = window.ACADEMIA || {};
   return window.ACADEMIA_ENTRY === "owner" || !!(c.ownerHost && location.hostname === c.ownerHost);
 }
+let loginWarmed = false;
+function warmLogin(){            // wakes the sign-in function and opens the connection while the person is still typing
+  if(loginWarmed || !API.config().ok) return; loginWarmed = true;
+  API.fn("login", { warm:true }, { auth:false }).catch(() => {});
+}
 function signInView(){
-  const root = app(); root.replaceChildren();
+  const root = app(); root.replaceChildren(); warmLogin();
   const host = schoolFromHost();
   const school = h("input", { id:"school", type:"text", autocomplete:"organization", autocapitalize:"none", spellcheck:"false", value: host || schoolPrefill() });
   const sid = h("input", { id:"sid", type:"text", autocomplete:"username", autocapitalize:"characters", spellcheck:"false", placeholder:"TCH-001" });
@@ -252,7 +259,10 @@ function signInView(){
     go.disabled = false;
     if(r.ok && r.data && r.data.session){
       API.tab.set("cbe-school", s); pass.input.value = "";
-      if(await loadProfile()){ location.hash = "#" + homeFor(S.profile.account_type); render(); }
+      // the sign-in answer already carries who you are, so there is nothing more to fetch
+      const u = r.data.user, sc = r.data.school;
+      if(u && u.school_id && sc && sc.name){ S.profile = { id:u.id, school_id:u.school_id, account_type:u.account_type, system_id:u.system_id, full_name:u.full_name, must_change_passcode:u.must_change_passcode, recovery_email:u.recovery_email || null }; S.school = sc; }
+      if(S.profile || await loadProfile()){ location.hash = "#" + homeFor(S.profile.account_type); render(); }
       else msg.append(banner("err", "We could not load your account. Please try again."));
     } else msg.append(banner(r.status === 429 ? "warn" : "err", await friendly(r, "sign-in")));
   } },
@@ -460,7 +470,7 @@ function addSchoolView(main){
   main.append(h("div", { class:"card" }, form));
 }
 const ACTION_LABEL = { school_created:"Added", school_suspended:"Suspended", school_resumed:"Reactivated", school_removed:"Removed", school_restored:"Restored",
-  passcode_reset:"Reset a passcode for", user_created:"Added a person to", settings_changed:"Changed settings of", students_imported:"Imported students for", marks_saved:"Saved marks:", marks_imported:"Imported marks:" };
+  passcode_reset:"Reset a passcode for", user_created:"Added a person to", settings_changed:"Changed settings of", students_imported:"Imported students for", marks_saved:"Saved marks:", marks_imported:"Imported marks:", strand_marks_saved:"Saved strand marks:" };
 async function auditView(main, _p, alive){
   main.append(h("h1", null, "Audit log"), h("p", { class:"muted" }, "Who did what, and when. Passcodes are never written here."));
   loading(main);
