@@ -1,4 +1,3 @@
-
 "use strict";
 // A small client for Supabase: sign-in, tables, database functions and server functions.
 // No outside libraries. Tokens are kept for this browser tab only.
@@ -23,6 +22,7 @@ const API = (() => {
   let session = null;
   try{ session = JSON.parse(ss.get("cbe-session") || "null"); }catch(_){ session = null; }
   function setSession(s){
+    try{ cache.clear(); }catch(_){ /* not created yet */ }
     if(!s || !s.access_token){ session = null; ss.del("cbe-session"); return; }
     session = { access_token: s.access_token, refresh_token: s.refresh_token,
       expires_at: s.expires_at || Math.floor(Date.now()/1000) + (s.expires_in || 3600) };
@@ -77,12 +77,22 @@ const API = (() => {
     if(count && r.range){ const m = /\/(\d+)$/.exec(r.range); r.count = m ? Number(m[1]) : 0; }
     return r;
   }
-  const rpc = (name, args) => authed("/rest/v1/rpc/" + name, { method:"POST", body: args || {} });
-  const patch = (table, params, body) => authed("/rest/v1/" + table + qs(params), { method:"PATCH", body });
-  const post = (table, body) => authed("/rest/v1/" + table, { method:"POST", body, prefer:"return=representation" });
-  const del = (table, params) => authed("/rest/v1/" + table + qs(params), { method:"DELETE" });
-  const fn = (name, body, { auth=true } = {}) =>
-    auth ? authed("/functions/v1/" + name, { method:"POST", body }) : send("/functions/v1/" + name, { method:"POST", body });
+  // Short-lived memory for lists that rarely change (subjects, grading scale, assessments...). Every write clears it,
+  // so a screen never shows something older than the person's own last change. Used only for read-only lists.
+  const cache = new Map();
+  async function getCached(table, params, ttl = 120000){
+    const k = table + qs(params), hit = cache.get(k);
+    if(hit && Date.now() - hit.t < ttl) return hit.p;
+    const p = get(table, params).then((r) => { if(!r.ok) cache.delete(k); return r; });
+    cache.set(k, { t: Date.now(), p }); return p;
+  }
+  const writing = (f) => async (...a) => { const r = await f(...a); cache.clear(); return r; };
+  const rpc = writing((name, args) => authed("/rest/v1/rpc/" + name, { method:"POST", body: args || {} }));
+  const patch = writing((table, params, body) => authed("/rest/v1/" + table + qs(params), { method:"PATCH", body }));
+  const post = writing((table, body) => authed("/rest/v1/" + table, { method:"POST", body, prefer:"return=representation" }));
+  const del = writing((table, params) => authed("/rest/v1/" + table + qs(params), { method:"DELETE" }));
+  const fn = writing((name, body, { auth=true } = {}) =>
+    auth ? authed("/functions/v1/" + name, { method:"POST", body }) : send("/functions/v1/" + name, { method:"POST", body }));
 
   async function signInSchool(school, system_id, passcode){
     const r = await fn("login", { school, system_id, passcode }, { auth:false });
@@ -99,6 +109,6 @@ const API = (() => {
     setSession(null);
     if(t) try{ await send("/auth/v1/logout", { method:"POST", token:t, body:{} }); }catch(_){ /* ignore */ }
   }
-  return { config, saveConfig, hasSession: () => !!session, userId, get, rpc, patch, post, del, fn, signInSchool, signInOwner, signOut,
+  return { config, saveConfig, hasSession: () => !!session, userId, get, getCached, rpc, patch, post, del, fn, signInSchool, signInOwner, signOut,
            local: { get: ls.get, set: ls.set, del: ls.del }, tab: { get: ss.get, set: ss.set, del: ss.del } };
 })();
