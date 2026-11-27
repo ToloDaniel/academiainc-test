@@ -1,10 +1,9 @@
-
 "use strict";
 /* School Admin setup screens: Settings, Classes, Subjects, Teaching, and the setup checklist.
    Uses the helpers in app.js (h, banner, friendly, confirmDialog, openDialog, loading, S). */
 
 async function currentYear(){
-  const r = await API.get("academic_years", { select:"id,year", is_current:"eq.true" });
+  const r = await API.getCached("academic_years", { select:"id,year", is_current:"eq.true" });
   return r.ok && r.data && r.data[0] ? r.data[0] : null;
 }
 async function staffList(){
@@ -192,22 +191,23 @@ async function classesView(main, _p, alive){
 async function subjectsView(main, _p, alive){
   main.append(h("h1", null, "Subjects"), h("p", { class:"muted" }, "Subjects and their strands. Copy from the starter library, or add your own. Nothing is ever deleted: old subjects and strands are archived so past reports stay correct."));
   loading(main);
-  let subjects = [], strands = [], depts = [], staff = [];
+  let subjects = [], strands = [], subs = [], depts = [], staff = [];
   async function load(){
-    const [s, st, d, sf] = await Promise.all([
+    const [s, st, d, sf, ss] = await Promise.all([
       API.get("subjects", { select:"id,name,department_id,is_archived", order:"name" }),
       API.get("strands", { select:"id,subject_id,grade,term_no,name,is_archived", order:"grade,term_no,name", limit:"5000" }),
-      API.get("departments", { select:"id,name,hod_id", order:"name" }), staffList()]);
-    const bad = [s, st, d].find((x) => !x.ok);
+      API.get("departments", { select:"id,name,hod_id", order:"name" }), staffList(),
+      API.get("sub_strands", { select:"id,strand_id,name,is_archived", order:"name", limit:"10000" })]);
+    const bad = [s, st, d, ss].find((x) => !x.ok);
     if(bad) return bad;
-    subjects = s.data; strands = st.data; depts = d.data; staff = sf; return null;
+    subjects = s.data; strands = st.data; depts = d.data; staff = sf; subs = ss.data; return null;
   }
   const err = await load();
   if(!alive()) return;
   main.querySelector(".loading")?.remove();
   if(err){ main.append(banner("err", await friendly(err, "subjects"))); return; }
 
-  const state = { showArchived:false, open:new Set(), libOpen:false, ownOpen:false, deptOpen:false };
+  const state = { showArchived:false, open:new Set(), subOpen:new Set(), libOpen:false, ownOpen:false, deptOpen:false };
   const msgBox = h("div"), toolbar = h("div"), libBox = h("div"), ownBox = h("div"), deptBox = h("div"), listBox = h("div");
   main.append(toolbar, msgBox, libBox, ownBox, deptBox, listBox);
   const deptName = (id) => (depts.find((d) => d.id === id) || {}).name || "";
@@ -312,12 +312,37 @@ async function subjectsView(main, _p, alive){
     keys.forEach((k) => {
       const [g, t] = k.split("-");
       box.append(h("div", { style:"font-weight:700;margin-top:10px" }, "Grade " + g + " · Term " + t));
-      groups[k].forEach((x) => box.append(h("div", { style:"display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0" },
-        h("span", { style: x.is_archived ? "text-decoration:line-through;opacity:.6" : "" }, x.name),
-        h("button", { type:"button", class:"sm secondary", onclick: async () => {
-          const r = await API.patch("strands", { id:"eq." + x.id }, { is_archived: !x.is_archived });
-          if(r.ok) await refresh(); else await fail(r, "archive-strand");
-        } }, x.is_archived ? "Restore" : "Archive"))));
+      groups[k].forEach((x) => {
+        const mineSubs = subs.filter((q) => q.strand_id === x.id && (state.showArchived || !q.is_archived));
+        const nActive = subs.filter((q) => q.strand_id === x.id && !q.is_archived).length, subOpen = state.subOpen.has(x.id);
+        box.append(h("div", { style:"display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0" },
+          h("span", { style: x.is_archived ? "text-decoration:line-through;opacity:.6" : "" }, x.name, " ", h("span", { class:"muted small" }, "(" + nActive + (nActive === 1 ? " sub-strand)" : " sub-strands)"))),
+          h("span", { style:"display:flex;gap:6px;flex:0 0 auto" },
+            h("button", { type:"button", class:"sm secondary", "aria-expanded":String(subOpen), onclick: () => { if(subOpen) state.subOpen.delete(x.id); else state.subOpen.add(x.id); drawList(); } }, subOpen ? "Hide sub-strands" : "Sub-strands"),
+            h("button", { type:"button", class:"sm secondary", onclick: async () => {
+              const r = await API.patch("strands", { id:"eq." + x.id }, { is_archived: !x.is_archived });
+              if(r.ok) await refresh(); else await fail(r, "archive-strand");
+            } }, x.is_archived ? "Restore" : "Archive"))));
+        if(subOpen){
+          const inner = h("div", { style:"margin:2px 0 8px 14px;padding-left:10px;border-left:2px solid var(--rowline)" });
+          if(!mineSubs.length) inner.append(h("p", { class:"muted small" }, "No sub-strands yet. Teachers can mark the strand's sub-strands once you add them."));
+          mineSubs.forEach((q) => inner.append(h("div", { style:"display:flex;justify-content:space-between;gap:8px;align-items:center;padding:3px 0" },
+            h("span", { style: q.is_archived ? "text-decoration:line-through;opacity:.6" : "" }, q.name),
+            h("button", { type:"button", class:"sm secondary", onclick: async () => {
+              const r = await API.patch("sub_strands", { id:"eq." + q.id }, { is_archived: !q.is_archived });
+              if(r.ok) await refresh(); else await fail(r, "archive-sub-strand");
+            } }, q.is_archived ? "Restore" : "Archive"))));
+          const sn = h("input", { type:"text", placeholder:"New sub-strand name", "aria-label":"New sub-strand name for " + x.name, maxlength:"120", autocomplete:"off" }), sm = h("div");
+          inner.append(h("form", { novalidate:true, style:"margin-top:6px", onsubmit: async (e) => {
+            e.preventDefault(); sm.replaceChildren();
+            if(sn.value.trim().length < 2){ sm.append(banner("err", "Please enter the sub-strand's name.")); return; }
+            const r = await API.post("sub_strands", { school_id: S.profile.school_id, strand_id: x.id, name: sn.value.trim() });
+            if(r.ok){ state.open.add(sub.id); state.subOpen.add(x.id); await refresh(); ok("Sub-strand added to " + x.name + "."); }
+            else sm.append(banner(r.data && r.data.code === "23505" ? "warn" : "err", r.data && r.data.code === "23505" ? "That strand already has a sub-strand with this name." : await friendly(r, "add-sub-strand")));
+          } }, h("div", { class:"row" }, h("div", null, sn), h("div", { style:"flex:0 0 auto" }, h("button", { type:"submit", class:"sm" }, "Add sub-strand"))), sm));
+          box.append(inner);
+        }
+      });
     });
     const grade = selectOf("", GRADES.map((g) => [g, "Grade " + g])), term = selectOf("", [[1, "Term 1"], [2, "Term 2"], [3, "Term 3"]]);
     const nm = h("input", { type:"text", placeholder:"New strand name", "aria-label":"New strand name", maxlength:"120", autocomplete:"off" });
