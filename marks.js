@@ -69,18 +69,21 @@ async function marksView(main, _p, alive){
   main.append(h("div", { class:"btns", style:"margin:0 0 12px" }, h("a", { class:"btn secondary", href:"#/import-marks" }, "Import marks from Excel")));
   loading(main);
   const me = S.profile.id, isAdmin = S.profile.account_type === "school_admin";
-  const yr = await currentYear();
-  const [cls, sub, dep, sch, gs] = await Promise.all([
-    yr ? API.get("classes", { select:"id,name,class_teacher_id", academic_year_id:"eq." + yr.id, order:"name" }) : { ok:true, data:[] },
-    API.get("subjects", { select:"id,name,department_id", is_archived:"eq.false", order:"name" }),
-    API.get("departments", { select:"id,hod_id" }),
-    API.get("schools", { select:"round_marks", id:"eq." + S.profile.school_id }),
-    API.get("grading_scales", { select:"grade_code,points,min_score,max_score", order:"min_score.desc" })]);
-  const terms = yr ? await API.get("terms", { select:"id,name", academic_year_id:"eq." + yr.id, order:"name" }) : { ok:true, data:[] };
-  const evs = terms.ok && terms.data.length ? await API.get("assessment_events", { select:"id,term_id,name,held_on", term_id:"in.(" + terms.data.map((x) => x.id).join(",") + ")", order:"held_on.nullslast,name" }) : { ok:true, data:[] };
+  // Round 1: everything that does not depend on anything else, all at once (lists that rarely change are remembered for 2 minutes)
+  const [yr, sub, dep, sch, gs, asg] = await Promise.all([currentYear(),
+    API.getCached("subjects", { select:"id,name,department_id", is_archived:"eq.false", order:"name" }),
+    API.getCached("departments", { select:"id,hod_id" }),
+    API.getCached("schools", { select:"round_marks", id:"eq." + S.profile.school_id }),
+    API.getCached("grading_scales", { select:"grade_code,points,min_score,max_score", order:"min_score.desc" }),
+    isAdmin ? { ok:true, data:[] } : API.getCached("teacher_assignments", { select:"class_id,subject_id", teacher_id:"eq." + me })]);
+  // Round 2: the class list and the assessments of the current year, together
+  const [cls, evs] = yr ? await Promise.all([
+    API.getCached("classes", { select:"id,name,class_teacher_id", academic_year_id:"eq." + yr.id, order:"name" }),
+    API.getCached("assessment_events", { select:"id,term_id,name,held_on,terms!inner(name,academic_year_id)", "terms.academic_year_id":"eq." + yr.id, order:"held_on.nullslast,name" })])
+    : [{ ok:true, data:[] }, { ok:true, data:[] }];
   if(!alive()) return;
   main.querySelector(".loading")?.remove();
-  const bad = [cls, sub, dep, gs, terms, evs].find((x) => !x.ok);
+  const bad = [cls, sub, dep, gs, evs, asg].find((x) => !x.ok);
   if(bad){ main.append(banner("err", await friendly(bad, "marks"))); return; }
   const round = sch.ok && sch.data[0] ? sch.data[0].round_marks !== false : true;
   if(!cls.data.length){ main.append(banner("info", isAdmin ? "Add classes first (Classes tab)." : "You have no classes yet. Ask your School Admin to give you a class or a subject.")); return; }
@@ -89,7 +92,8 @@ async function marksView(main, _p, alive){
     if(isAdmin) main.append(h("div", { class:"btns" }, h("a", { class:"btn", href:"#/settings" }, "Go to Settings")));
     return;
   }
-  const termName = (id) => (terms.data.find((x) => x.id === id) || {}).name || "";
+  const termOf = {}; evs.data.forEach((e) => { termOf[e.term_id] = e.terms && e.terms.name; });
+  const termName = (id) => termOf[id] || "";
   const levelOf = (n) => { const v = round ? Math.floor(n + 0.5) : Math.floor(n); return gs.data.find((b) => v >= b.min_score && v <= b.max_score); };
 
   const pickC = selectOf("mc", cls.data.map((c) => [c.id, c.name]), API.tab.get("cbe-m-class") || cls.data[0].id);
@@ -103,8 +107,7 @@ async function marksView(main, _p, alive){
     let allowed;
     if(isAdmin || c.class_teacher_id === me) allowed = sub.data;
     else {
-      const a = await API.get("teacher_assignments", { select:"subject_id", class_id:"eq." + c.id, teacher_id:"eq." + me });
-      const mine = new Set((a.ok ? a.data : []).map((x) => x.subject_id)), hodDepts = new Set(dep.data.filter((d) => d.hod_id === me).map((d) => d.id));
+      const mine = new Set(asg.data.filter((x) => x.class_id === c.id).map((x) => x.subject_id)), hodDepts = new Set(dep.data.filter((d) => d.hod_id === me).map((d) => d.id));
       allowed = sub.data.filter((s) => mine.has(s.id) || hodDepts.has(s.department_id));
     }
     pickS.replaceChildren(...allowed.map((s) => h("option", { value:s.id }, s.name)));
