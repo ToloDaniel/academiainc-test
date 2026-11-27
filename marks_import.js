@@ -52,16 +52,15 @@ async function importMarksView(main, _p, alive){
   if(isAdmin) main.append(h("div", { class:"btns", style:"margin:0 0 12px" }, h("a", { class:"btn secondary", href:"#/import" }, "Import students instead")));
   loading(main);
   const yr = await currentYear();
-  const [terms, subj] = await Promise.all([yr ? API.get("terms", { select:"id,name", academic_year_id:"eq." + yr.id, order:"name" }) : { ok:true, data:[] },
-    API.get("subjects", { select:"id,name", is_archived:"eq.false", order:"name" })]);
-  const evs = terms.ok && terms.data.length ? await API.get("assessment_events", { select:"id,term_id,name", term_id:"in.(" + terms.data.map((x) => x.id).join(",") + ")", order:"held_on.nullslast,name" }) : { ok:true, data:[] };
+  const [subj, evs] = await Promise.all([API.getCached("subjects", { select:"id,name", is_archived:"eq.false", order:"name" }),
+    yr ? API.getCached("assessment_events", { select:"id,term_id,name,held_on,terms!inner(name,academic_year_id)", "terms.academic_year_id":"eq." + yr.id, order:"held_on.nullslast,name" }) : { ok:true, data:[] }]);
   if(!alive()) return;
   main.querySelector(".loading")?.remove();
-  const bad = [terms, subj, evs].find((x) => !x.ok);
+  const bad = [subj, evs].find((x) => !x.ok);
   if(bad){ main.append(banner("err", await friendly(bad, "import-marks"))); return; }
   if(!evs.data.length){ main.append(banner("info", isAdmin ? "Create an assessment first (Settings tab, under Assessments)." : "There is no assessment yet. Ask your School Admin to create one.")); return; }
   if(!subj.data.length){ main.append(banner("info", "There are no subjects yet.")); return; }
-  const tName = (id) => (terms.data.find((x) => x.id === id) || {}).name || "";
+  const tName = (id) => { const e = evs.data.find((x) => x.term_id === id); return (e && e.terms && e.terms.name) || ""; };
 
   const st = { parsed:null, preview:null, fileName:"" };
   const pickE = selectOf("ie", evs.data.map((e) => [e.id, tName(e.term_id) + " · " + e.name]), API.tab.get("cbe-m-event") || evs.data[evs.data.length - 1].id);
